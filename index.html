@@ -1,0 +1,553 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>HCC PM Job Walks App</title>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.production.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.production.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/7.23.2/babel.min.js"></script>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://unpkg.com/docx@7.8.2/build/index.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/FileSaver.js/2.0.5/FileSaver.min.js"></script>
+</head>
+<body className="bg-gray-100 min-h-screen flex items-center justify-center p-4">
+  <div id="root"></div>
+  <script type="text/babel">
+    function App() {
+      const initialJobItems = [
+        { item: 'Updated Docs for Inspection Box', passFail: '', notes: '' },
+        { item: 'Dumpster needs emptied', passFail: '', notes: '' },
+        { item: 'Adequate protection of stored materials', passFail: '', notes: '' },
+        { item: 'Adequate protection of surfaces', passFail: '', notes: '' },
+      ];
+      const [jobName, setJobName] = React.useState('');
+      const [jobItems, setJobItems] = React.useState(initialJobItems);
+      const [needToLookAt, setNeedToLookAt] = React.useState([{ item: '', passFail: '', notes: '' }]);
+      const [observedDeficiencies, setObservedDeficiencies] = React.useState([{ item: '', notes: '' }]);
+      const [savedForms, setSavedForms] = React.useState([]);
+      const [selectedForm, setSelectedForm] = React.useState('');
+
+      // Load saved forms from localStorage on mount
+      React.useEffect(() => {
+        const forms = JSON.parse(localStorage.getItem('jobWalkForms') || '[]');
+        setSavedForms(forms);
+      }, []);
+
+      // Handle input change for job name
+      const handleJobNameChange = (e) => {
+        setJobName(e.target.value);
+      };
+
+      // Handle input changes for job items
+      const handleJobItemChange = (index, field, value) => {
+        const updatedItems = [...jobItems];
+        updatedItems[index][field] = value;
+        setJobItems(updatedItems);
+      };
+
+      // Handle input changes for need to look at
+      const handleNeedToLookAtChange = (index, field, value) => {
+        const updatedItems = [...needToLookAt];
+        updatedItems[index][field] = value;
+        setNeedToLookAt(updatedItems);
+      };
+
+      // Handle input changes for observed deficiencies
+      const handleObservedDeficienciesChange = (index, field, value) => {
+        const updatedItems = [...observedDeficiencies];
+        updatedItems[index][field] = value;
+        setObservedDeficiencies(updatedItems);
+      };
+
+      // Add new row for need to look at
+      const addNeedToLookAtRow = () => {
+        setNeedToLookAt([...needToLookAt, { item: '', passFail: '', notes: '' }]);
+      };
+
+      // Add new row for observed deficiencies
+      const addObservedDeficienciesRow = () => {
+        setObservedDeficiencies([...observedDeficiencies, { item: '', notes: '' }]);
+      };
+
+      // Reset form to initial state
+      const resetForm = () => {
+        setJobName('');
+        setJobItems(initialJobItems.map(item => ({ ...item, passFail: '', notes: '' })));
+        setNeedToLookAt([{ item: '', passFail: '', notes: '' }]);
+        setObservedDeficiencies([{ item: '', notes: '' }]);
+        setSelectedForm('');
+      };
+
+      // Save current form to localStorage
+      const saveForm = () => {
+        if (!jobName.trim()) {
+          alert('Please enter a job name before saving.');
+          return;
+        }
+        const existingForm = savedForms.find(form => form.id === jobName);
+        if (existingForm && !confirm(`A form with the job name "${jobName}" already exists. Do you want to overwrite it?`)) {
+          return;
+        }
+        const formData = {
+          id: jobName,
+          jobName,
+          jobItems,
+          needToLookAt,
+          observedDeficiencies,
+          savedAt: new Date().toISOString(),
+        };
+        const updatedForms = [...savedForms.filter(form => form.id !== jobName), formData];
+        setSavedForms(updatedForms);
+        localStorage.setItem('jobWalkForms', JSON.stringify(updatedForms));
+        setSelectedForm(jobName);
+        alert('Form saved successfully!');
+      };
+
+      // Load selected form
+      const loadForm = (formId) => {
+        const form = savedForms.find(f => f.id === formId);
+        if (form) {
+          setJobName(form.jobName);
+          setJobItems(form.jobItems);
+          setNeedToLookAt(form.needToLookAt);
+          setObservedDeficiencies(form.observedDeficiencies);
+          setSelectedForm(formId);
+        }
+      };
+
+      // Delete selected form
+      const deleteForm = () => {
+        if (!selectedForm) {
+          alert('Please select a form to delete.');
+          return;
+        }
+        if (!confirm(`Are you sure you want to delete the form "${selectedForm}"?`)) {
+          return;
+        }
+        const updatedForms = savedForms.filter(form => form.id !== selectedForm);
+        setSavedForms(updatedForms);
+        localStorage.setItem('jobWalkForms', JSON.stringify(updatedForms));
+        resetForm();
+        alert('Form deleted successfully!');
+      };
+
+      // Handle form completion
+      const handleComplete = () => {
+        const doc = new docx.Document({
+          sections: [
+            {
+              properties: {},
+              children: [
+                new docx.Paragraph({
+                  children: [
+                    new docx.TextRun({
+                      text: "HCC PM Job Walks Report",
+                      bold: true,
+                      size: 28,
+                    }),
+                  ],
+                  spacing: { after: 200 },
+                }),
+                new docx.Paragraph({
+                  children: [
+                    new docx.TextRun({
+                      text: `Job Name: ${jobName || 'Not specified'}`,
+                      bold: true,
+                      size: 24,
+                    }),
+                  ],
+                  spacing: { after: 200 },
+                }),
+                new docx.Paragraph({
+                  children: [
+                    new docx.TextRun({
+                      text: "Job Items",
+                      bold: true,
+                      size: 24,
+                    }),
+                  ],
+                  spacing: { after: 100 },
+                }),
+                new docx.Table({
+                  width: { size: 100, type: docx.WidthType.PERCENTAGE },
+                  rows: [
+                    new docx.TableRow({
+                      children: [
+                        new docx.TableCell({
+                          children: [new docx.Paragraph("Item")],
+                          margins: { top: 100, bottom: 100, left: 100, right: 100 },
+                        }),
+                        new docx.TableCell({
+                          children: [new docx.Paragraph("Pass/Fail")],
+                          margins: { top: 100, bottom: 100, left: 100, right: 100 },
+                        }),
+                        new docx.TableCell({
+                          children: [new docx.Paragraph("Notes")],
+                          margins: { top: 100, bottom: 100, left: 100, right: 100 },
+                        }),
+                      ],
+                    }),
+                    ...jobItems.map(item => new docx.TableRow({
+                      children: [
+                        new docx.TableCell({
+                          children: [new docx.Paragraph(item.item)],
+                          margins: { top: 100, bottom: 100, left: 100, right: 100 },
+                        }),
+                        new docx.TableCell({
+                          children: [new docx.Paragraph(item.passFail || 'Not specified')],
+                          margins: { top: 100, bottom: 100, left: 100, right: 100 },
+                        }),
+                        new docx.TableCell({
+                          children: [new docx.Paragraph(item.notes || 'None')],
+                          margins: { top: 100, bottom: 100, left: 100, right: 100 },
+                        }),
+                      ],
+                    })),
+                  ],
+                }),
+                new docx.Paragraph({
+                  children: [
+                    new docx.TextRun({
+                      text: "Need to Look at",
+                      bold: true,
+                      size: 24,
+                    }),
+                  ],
+                  spacing: { before: 200, after: 100 },
+                }),
+                new docx.Table({
+                  width: { size: 100, type: docx.WidthType.PERCENTAGE },
+                  rows: [
+                    new docx.TableRow({
+                      children: [
+                        new docx.TableCell({
+                          children: [new docx.Paragraph("Item")],
+                          margins: { top: 100, bottom: 100, left: 100, right: 100 },
+                        }),
+                        new docx.TableCell({
+                          children: [new docx.Paragraph("Pass/Fail")],
+                          margins: { top: 100, bottom: 100, left: 100, right: 100 },
+                        }),
+                        new docx.TableCell({
+                          children: [new docx.Paragraph("Notes")],
+                          margins: { top: 100, bottom: 100, left: 100, right: 100 },
+                        }),
+                      ],
+                    }),
+                    ...needToLookAt.map(item => new docx.TableRow({
+                      children: [
+                        new docx.TableCell({
+                          children: [new docx.Paragraph(item.item || 'Not specified')],
+                          margins: { top: 100, bottom: 100, left: 100, right: 100 },
+                        }),
+                        new docx.TableCell({
+                          children: [new docx.Paragraph(item.passFail || 'Not specified')],
+                          margins: { top: 100, bottom: 100, left: 100, right: 100 },
+                        }),
+                        new docx.TableCell({
+                          children: [new docx.Paragraph(item.notes || 'None')],
+                          margins: { top: 100, bottom: 100, left: 100, right: 100 },
+                        }),
+                      ],
+                    })),
+                  ],
+                }),
+                new docx.Paragraph({
+                  children: [
+                    new docx.TextRun({
+                      text: "Observed Deficiencies",
+                      bold: true,
+                      size: 24,
+                    }),
+                  ],
+                  spacing: { before: 200, after: 100 },
+                }),
+                new docx.Table({
+                  width: { size: 100, type: docx.WidthType.PERCENTAGE },
+                  rows: [
+                    new docx.TableRow({
+                      children: [
+                        new docx.TableCell({
+                          children: [new docx.Paragraph("Item")],
+                          margins: { top: 100, bottom: 100, left: 100, right: 100 },
+                        }),
+                        new docx.TableCell({
+                          children: [new docx.Paragraph("Notes")],
+                          margins: { top: 100, bottom: 100, left: 100, right: 100 },
+                        }),
+                      ],
+                    }),
+                    ...observedDeficiencies.map(item => new docx.TableRow({
+                      children: [
+                        new docx.TableCell({
+                          children: [new docx.Paragraph(item.item || 'Not specified')],
+                          margins: { top: 100, bottom: 100, left: 100, right: 100 },
+                        }),
+                        new docx.TableCell({
+                          children: [new docx.Paragraph(item.notes || 'None')],
+                          margins: { top: 100, bottom: 100, left: 100, right: 100 },
+                        }),
+                      ],
+                    })),
+                  ],
+                }),
+              ],
+            },
+          ],
+        });
+
+        docx.Packer.toBlob(doc).then(blob => {
+          saveAs(blob, `${jobName || 'Job_Walk_Report'}_Report.docx`);
+        });
+
+        let emailBody = `HCC PM Job Walks Report\n\n`;
+        emailBody += `Job Name: ${jobName || 'Not specified'}\n\n`;
+        emailBody += `Job Items:\n`;
+        jobItems.forEach((item, index) => {
+          emailBody += `${index + 1}. ${item.item}\n`;
+          emailBody += `   Pass/Fail: ${item.passFail || 'Not specified'}\n`;
+          emailBody += `   Notes: ${item.notes || 'None'}\n\n`;
+        });
+        emailBody += `Need to Look at:\n`;
+        needToLookAt.forEach((item, index) => {
+          emailBody += `${index + 1}. ${item.item || 'Not specified'}\n`;
+          emailBody += `   Pass/Fail: ${item.passFail || 'Not specified'}\n`;
+          emailBody += `   Notes: ${item.notes || 'None'}\n\n`;
+        });
+        emailBody += `Observed Deficiencies:\n`;
+        observedDeficiencies.forEach((item, index) => {
+          emailBody += `${index + 1}. ${item.item || 'Not specified'}\n`;
+          emailBody += `   Notes: ${item.notes || 'None'}\n\n`;
+        });
+        emailBody += `The detailed report has been downloaded as a Word document named "${jobName || 'Job_Walk_Report'}_Report.docx". Please attach it to this email if needed.\n`;
+
+        const encodedSubject = encodeURIComponent('HCC PM Job Walks Report');
+        const encodedBody = encodeURIComponent(emailBody);
+        const mailtoLink = `mailto:grant@hcnaz.com?subject=${encodedSubject}&body=${encodedBody}`;
+        window.location.href = mailtoLink;
+
+        // Remove the completed form from saved forms
+        const updatedForms = savedForms.filter(form => form.id !== selectedForm);
+        setSavedForms(updatedForms);
+        localStorage.setItem('jobWalkForms', JSON.stringify(updatedForms));
+        resetForm();
+      };
+
+      return (
+        <div className="w-full max-w-4xl mx-auto p-4 sm:p-6 bg-white rounded-lg shadow-lg">
+          {/* Saved Forms Section */}
+          <div className="mb-6">
+            <label htmlFor="savedForms" className="block text-lg font-semibold text-gray-700 mb-2">
+              Load Saved Form
+            </label>
+            <div className="flex flex-col sm:flex-row sm:space-x-4">
+              <select
+                id="savedForms"
+                className="w-full sm:w-1/2 p-3 border rounded focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm sm:text-base mb-2 sm:mb-0"
+                value={selectedForm}
+                onChange={(e) => loadForm(e.target.value)}
+              >
+                <option value="">Select a saved form</option>
+                {savedForms.map(form => (
+                  <option key={form.id} value={form.id}>
+                    {form.jobName} ({new Date(form.savedAt).toLocaleString()})
+                  </option>
+                ))}
+              </select>
+              <button
+                className="bg-red-500 text-white px-4 py-2 rounded hover:bg-red-600 transition text-sm sm:text-base"
+                onClick={deleteForm}
+              >
+                Delete Selected Form
+              </button>
+            </div>
+          </div>
+
+          {/* Job Name Section */}
+          <div className="mb-6">
+            <label htmlFor="jobName" className="block text-lg font-semibold text-gray-700 mb-2">
+              Job Name
+            </label>
+            <input
+              type="text"
+              id="jobName"
+              className="w-full p-3 border rounded focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm sm:text-base"
+              value={jobName}
+              onChange={handleJobNameChange}
+              placeholder="Enter job name"
+            />
+          </div>
+
+          <h1 className="text-xl sm:text-2xl font-bold text-gray-800 mb-6 text-center">HCC PM Job Walks</h1>
+
+          {/* Job Items Table */}
+          <div className="mb-8">
+            <h2 className="text-lg sm:text-xl font-semibold text-gray-700 mb-4">Job Items</h2>
+            <div className="overflow-x-auto">
+              <table className="w-full border-collapse text-sm sm:text-base">
+                <thead>
+                  <tr className="bg-gray-200">
+                    <th className="border p-2 sm:p-3 text-left">Job Item</th>
+                    <th className="border p-2 sm:p-3 text-left">Pass/Fail</th>
+                    <th className="border p-2 sm:p-3 text-left">Notes</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {jobItems.map((item, index) => (
+                    <tr key={index} className="hover:bg-gray-50">
+                      <td className="border p-2 sm:p-3">{item.item}</td>
+                      <td className="border p-2 sm:p-3">
+                        <select
+                          className="w-full p-1 sm:p-2 border rounded focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm sm:text-base"
+                          value={item.passFail}
+                          onChange={(e) => handleJobItemChange(index, 'passFail', e.target.value)}
+                        >
+                          <option value="">Select</option>
+                          <option value="Pass">Pass</option>
+                          <option value="Fail">Fail</option>
+                        </select>
+                      </td>
+                      <td className="border p-2 sm:p-3">
+                        <textarea
+                          className="w-full p-1 sm:p-2 border rounded focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm sm:text-base"
+                          value={item.notes}
+                          onChange={(e) => handleJobItemChange(index, 'notes', e.target.value)}
+                          rows="2"
+                        />
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+
+          {/* Need to Look at Section */}
+          <div className="mb-8">
+            <h2 className="text-lg sm:text-xl font-semibold text-gray-700 mb-4">Need to Look at</h2>
+            <div className="overflow-x-auto">
+              <table className="w-full border-collapse text-sm sm:text-base">
+                <thead>
+                  <tr className="bg-gray-200">
+                    <th className="border p-2 sm:p-3 text-left">Item</th>
+                    <th className="border p-2 sm:p-3 text-left">Pass/Fail</th>
+                    <th className="border p-2 sm:p-3 text-left">Notes</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {needToLookAt.map((item, index) => (
+                    <tr key={index} className="hover:bg-gray-50">
+                      <td className="border p-2 sm:p-3">
+                        <input
+                          type="text"
+                          className="w-full p-1 sm:p-2 border rounded focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm sm:text-base"
+                          value={item.item}
+                          onChange={(e) => handleNeedToLookAtChange(index, 'item', e.target.value)}
+                        />
+                      </td>
+                      <td className="border p-2 sm:p-3">
+                        <select
+                          className="w-full p-1 sm:p-2 border rounded focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm sm:text-base"
+                          value={item.passFail}
+                          onChange={(e) => handleNeedToLookAtChange(index, 'passFail', e.target.value)}
+                        >
+                          <option value="">Select</option>
+                          <option value="Pass">Pass</option>
+                          <option value="Fail">Fail</option>
+                        </select>
+                      </td>
+                      <td className="border p-2 sm:p-3">
+                        <textarea
+                          className="w-full p-1 sm:p-2 border rounded focus:outline-none focus:ring-2 focus:ring-blue1 sm:text-base"
+                          value={item.notes}
+                          onChange={(e) => handleNeedToLookAtChange(index, 'notes', e.target.value)}
+                          rows="2"
+                        />
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+            <button
+              className="mt-4 bg-blue-500 text-white px-4 py-2 rounded hover:bg-blue-600 transition text-sm sm:text-base"
+              onClick={addNeedToLookAtRow}
+            >
+              Add Row
+            </button>
+          </div>
+
+          {/* Observed Deficiencies Section */}
+          <div className="mb-8">
+            <h2 className="text-lg sm:text-xl font-semibold text-gray-700 mb-4">Observed Deficiencies</h2>
+            <div className="overflow-x-auto">
+              <table className="w-full border-collapse text-sm sm:text-base">
+                <thead>
+                  <tr className="bg-gray-200">
+                    <th className="border p-2 sm:p-3 text-left">Item</th>
+                    <th className="border p-2 sm:p-3 text-left">Notes</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {observedDeficiencies.map((item, index) => (
+                    <tr key={index} className="hover:bg-gray-50">
+                      <td className="border p-2 sm:p-3">
+                        <input
+                          type="text"
+                          className="w-full p-1 sm:p-2 border rounded focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm sm:text-base"
+                          value={item.item}
+                          onChange={(e) => handleObservedDeficienciesChange(index, 'item', e.target.value)}
+                        />
+                      </td>
+                      <td className="border p-2 sm:p-3">
+                        <textarea
+                          className="w-full p-1 sm:p-2 border rounded focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm sm:text-base"
+                          value={item.notes}
+                          onChange={(e) => handleObservedDeficienciesChange(index, 'notes', e.target.value)}
+                          rows="2"
+                        />
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+            <button
+              className="mt-4 bg-blue-500 text-white px-4 py-2 rounded hover:bg-blue-600 transition text-sm sm:text-base"
+              onClick={addObservedDeficienciesRow}
+            >
+              Add Row
+            </button>
+          </div>
+
+          {/* Buttons */}
+          <div className="text-center space-y-4 sm:space-y-0 sm:space-x-4 flex flex-col sm:flex-row justify-center">
+            <button
+              className="bg-yellow-500 text-white px-6 py-3 rounded hover:bg-yellow-600 transition text-sm sm:text-base"
+              onClick={saveForm}
+            >
+              Save Form
+            </button>
+            <button
+              className="bg-green-500 text-white px-6 py-3 rounded hover:bg-green-600 transition text-sm sm:text-base"
+              onClick={handleComplete}
+            >
+              Complete
+            </button>
+            <button
+              className="bg-red-500 text-white px-6 py-3 rounded hover:bg-red-600 transition text-sm sm:text-base"
+              onClick={resetForm}
+            >
+              Clear Form
+            </button>
+          </div>
+        </div>
+      );
+    }
+
+    const root = ReactDOM.createRoot(document.getElementById('root'));
+    root.render(<App />);
+  </script>
+</body>
+</html>
